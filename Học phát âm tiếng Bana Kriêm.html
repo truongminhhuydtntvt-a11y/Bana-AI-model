@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Luyện Phát Âm Ba Na (DNN/CNN)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.5.4/dist/speech-commands.min.js"></script>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body { font-family: 'Inter', system-ui, Arial; background-color: #f7f7f7; }
+        .card { max-width: 600px; margin: 40px auto; background: white; padding: 24px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .record-btn { transition: all 0.2s; }
+        .recording { animation: pulse-red 1.5s infinite; }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+    </style>
+</head>
+<body class="p-4">
+
+    <div class="card space-y-4">
+        <h1 class="text-3xl font-bold text-center text-green-700 mb-6">
+            <i class="fas fa-microchip mr-2"></i> Luyện Phát Âm Ba Na (Tích hợp AI)
+        </h1>
+
+        <div class="bg-gray-100 p-4 rounded-xl">
+            <label class="block text-gray-700 font-semibold mb-2">Chọn từ cần luyện:</label>
+            <select id="wordSelect" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 text-lg font-medium">
+                </select>
+        </div>
+
+        <div class="text-center p-6 bg-green-50 rounded-xl border-2 border-green-200">
+            <h2 id="targetWord" class="text-5xl font-extrabold text-green-800">...</h2>
+            <p id="targetMeaning" class="text-gray-600 mt-2 text-xl">...</h2>
+        </div>
+
+        <button id="recordBtn" class="record-btn w-full bg-red-500 hover:bg-red-600 text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-red-500/30 transition transform active:scale-95">
+            <i id="micIcon" class="fas fa-microphone text-2xl"></i>
+            <span id="recordText" class="text-xl">Ghi âm (1 giây)</span>
+        </button>
+        
+        <button id="testBtn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg transition-all" disabled style="display: none;">
+            Chấm điểm phát âm
+        </button>
+
+        <div id="status" class="min-h-[60px] flex items-center justify-center bg-yellow-100 border-2 border-yellow-300 rounded-xl p-4 text-center text-yellow-800 font-medium">
+            Đang tải mô hình AI...
+        </div>
+    </div>
+
+    <script>
+        // --- 1. Cấu hình Dữ liệu và Mô hình ---
+        
+        // **THAY ĐỔI THEO DỮ LIỆU CỦA BẠN**
+        // Đảm bảo các từ ở đây KHỚP CHÍNH XÁC với nhãn (labels) trong mô hình AI của bạn (trừ '_background_noise_')
+        const WORD_LIST = [
+            { word: "'bok", meaning: "Ông" },
+            { word: "΄bă", meaning: "Cha" },
+            { word: "mĭ", meaning: "Mẹ" },
+            { word: "mai", meaning: "Chị" }
+        ];
+
+        // SỬA LỖI: Thay đường dẫn tuyệt đối (D/bana_model/) bằng đường dẫn tương đối.
+        // Điều này giả định thư mục "bana_model" nằm cùng nơi với file HTML này.
+        const MODEL_PATH = './bana_model/'; 
+
+        // --- 2. Biến toàn cục và Khởi tạo ---
+        let recognizer;
+        let wordLabels; // Nhãn mô hình AI (bao gồm cả _background_noise_)
+        let isRecording = false;
+
+        // --- 3. Hàm Khởi tạo Model ---
+        async function setupModel() {
+            try {
+                const statusEl = document.getElementById('status');
+                const recordBtn = document.getElementById('recordBtn');
+
+                if (typeof tf === 'undefined' || typeof speechCommands === 'undefined') {
+                    statusEl.innerHTML = 'Lỗi: Không tải được TensorFlow.js. Vui lòng kiểm tra kết nối mạng.';
+                    recordBtn.disabled = true;
+                    return;
+                }
+
+                // Tải mô hình từ đường dẫn cục bộ
+                statusEl.textContent = 'Đang tải mô hình...';
+                
+                // Khởi tạo bộ nhận dạng
+                recognizer = new speechCommands.BrowserFft(MODEL_PATH);
+                await recognizer.ensureModelLoaded();
+                
+                // Lấy nhãn từ metadata của mô hình
+                wordLabels = recognizer.wordLabels(); 
+                
+                // Thêm kiểm tra nhãn để đảm bảo khớp với WORD_LIST
+                const allLabelsInModel = wordLabels.filter(label => label !== '_background_noise_');
+                // Nếu mô hình không có đủ nhãn cần thiết
+                if (allLabelsInModel.length < WORD_LIST.length) {
+                     statusEl.className = 'min-h-[60px] flex items-center justify-center bg-red-100 border-2 border-red-500 rounded-xl p-4 text-center text-red-700 font-bold';
+                     statusEl.innerHTML = `Lỗi: Mô hình chỉ có ${allLabelsInModel.length} nhãn. Vui lòng kiểm tra file metadata.json.`;
+                     recordBtn.disabled = true;
+                     return;
+                }
+                
+                // Kiểm tra xem tất cả các từ trong WORD_LIST có trong wordLabels không
+                const missingLabels = WORD_LIST.filter(item => !wordLabels.includes(item.word));
+                if (missingLabels.length > 0) {
+                     statusEl.className = 'min-h-[60px] flex items-center justify-center bg-red-100 border-2 border-red-500 rounded-xl p-4 text-center text-red-700 font-bold';
+                     statusEl.innerHTML = `Lỗi: Một số từ (${missingLabels.join(', ')}) không có trong mô hình. Vui lòng kiểm tra file metadata.json.`;
+                     recordBtn.disabled = true;
+                     return;
+                }
+
+                statusEl.className = 'min-h-[60px] flex items-center justify-center bg-green-100 border-2 border-green-300 rounded-xl p-4 text-center text-green-700 font-medium';
+                statusEl.textContent = 'Tải mô hình thành công. Sẵn sàng ghi âm.';
+                recordBtn.disabled = false;
+
+            } catch (error) {
+                console.error("Lỗi khi tải hoặc khởi tạo mô hình:", error);
+                document.getElementById('status').className = 'min-h-[60px] flex items-center justify-center bg-red-100 border-2 border-red-500 rounded-xl p-4 text-center text-red-700 font-bold';
+                // Thay đổi thông báo lỗi để hướng dẫn người dùng kiểm tra đường dẫn
+                document.getElementById('status').innerHTML = `Lỗi tải mô hình. Vui lòng kiểm tra xem thư mục <b>bana_model</b> đã được đặt cùng thư mục với file HTML này chưa. (Lỗi: ${error.message}).`;
+                document.getElementById('recordBtn').disabled = true;
+            }
+        }
+
+        // --- 4. Cập nhật Giao diện và Gán sự kiện ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const select = document.getElementById('wordSelect');
+            WORD_LIST.forEach(item => {
+                const opt = document.createElement('option');
+                opt.value = item.word;
+                opt.textContent = item.word;
+                opt.dataset.meaning = item.meaning;
+                select.appendChild(opt);
+            });
+
+            updateDisplay();
+            select.addEventListener('change', updateDisplay);
+
+            const recordBtn = document.getElementById('recordBtn');
+            if (recordBtn) recordBtn.addEventListener('click', startPrediction);
+            recordBtn.disabled = true; // Vô hiệu hóa cho đến khi tải mô hình xong
+
+            setupModel(); // Bắt đầu tải mô hình
+        });
+
+        function updateDisplay() {
+            const select = document.getElementById('wordSelect');
+            const targetWordEl = document.getElementById('targetWord');
+            const targetMeaningEl = document.getElementById('targetMeaning');
+            const statusEl = document.getElementById('status');
+            
+            if (!select || !targetWordEl || !targetMeaningEl || !statusEl) return;
+
+            const selectedOption = select.options[select.selectedIndex];
+            targetWordEl.textContent = selectedOption.value;
+            targetMeaningEl.textContent = selectedOption.dataset.meaning;
+            
+            if (recognizer && recognizer.modelLoaded) {
+                 statusEl.className = 'min-h-[60px] flex items-center justify-center bg-green-100 border-2 border-green-300 rounded-xl p-4 text-center text-green-700 font-medium';
+                 statusEl.innerHTML = 'Sẵn sàng ghi âm.';
+            }
+           
+        }
+
+        // --- 5. Ghi âm và Dự đoán (Prediction) ---
+        async function startPrediction() {
+            if (!recognizer || !recognizer.modelLoaded) return alert('Mô hình chưa được tải.');
+            if (isRecording) return; // Đang ghi âm thì không làm gì
+
+            const statusEl = document.getElementById('status');
+            const recordBtn = document.getElementById('recordBtn');
+            const micIcon = document.getElementById('micIcon');
+            const recText = document.getElementById('recordText');
+            
+            isRecording = true;
+            recordBtn.classList.add('recording');
+            micIcon.className = "fas fa-stop text-2xl";
+            recText.textContent = "Đang ghi âm (1 giây)...";
+            statusEl.textContent = 'Đang lắng nghe...';
+            statusEl.className = 'min-h-[60px] flex items-center justify-center bg-blue-100 border-2 border-blue-300 rounded-xl p-4 text-center text-blue-800 font-medium';
+            
+            // Bắt đầu lắng nghe và ghi âm 1 lần
+            const result = await recognizer.recognize(null, 
+                // Tham số: Số lần nghe, Nghe trong bao lâu (1000ms = 1 giây)
+                null, 1000); 
+
+            // Kết thúc ghi âm
+            isRecording = false;
+            recordBtn.classList.remove('recording');
+            micIcon.className = "fas fa-microphone text-2xl";
+            recText.textContent = "Ghi âm lại (1 giây)";
+
+            // Chấm điểm ngay sau khi ghi âm
+            processPrediction(result);
+        }
+
+        // --- 6. Xử lý Kết quả Dự đoán ---
+        function processPrediction(result) {
+            const statusEl = document.getElementById('status');
+            const targetWord = document.getElementById('targetWord').textContent;
+            
+            const scores = result.scores;
+            // Tìm nhãn có xác suất (score) cao nhất
+            let maxScore = -Infinity;
+            let bestLabel = '';
+            
+            for (let i = 0; i < scores.length; i++) {
+                if (scores[i] > maxScore) {
+                    maxScore = scores[i];
+                    bestLabel = wordLabels[i];
+                }
+            }
+            
+            const targetIndex = wordLabels.indexOf(targetWord);
+            const targetScore = targetIndex !== -1 ? scores[targetIndex] : 0;
+            
+            // Ngưỡng quyết định (thử nghiệm, có thể cần điều chỉnh)
+            const THRESHOLD_EXCELLENT = 0.90; // 90%
+            const THRESHOLD_GOOD = 0.70;    // 70%
+
+            let feedback;
+            let statusClass;
+
+            if (targetScore >= THRESHOLD_EXCELLENT) {
+                // Nhận diện đúng với độ tự tin cao
+                feedback = `<i class="fas fa-check-circle mr-2"></i> **Xuất sắc!** Phát âm rất chuẩn.`;
+                statusClass = 'min-h-[60px] flex items-center justify-center bg-green-100 border-2 border-green-500 rounded-xl p-4 text-center text-green-700 font-bold';
+            } else if (targetScore >= THRESHOLD_GOOD) {
+                // Nhận diện đúng nhưng độ tự tin vừa phải
+                feedback = `<i class="fas fa-star-half-alt mr-2"></i> **Khá!** Phát âm nghe giống nhưng cần luyện thêm.`;
+                statusClass = 'min-h-[60px] flex items-center justify-center bg-blue-100 border-2 border-blue-500 rounded-xl p-4 text-center text-blue-700 font-bold';
+            } else {
+                // Nhận diện sai hoặc không rõ ràng
+                if (bestLabel === targetWord) {
+                     // Nếu đúng nhưng score thấp hơn 70%
+                     feedback = `<i class="fas fa-redo-alt mr-2"></i> **Cần cố gắng.** Phát âm còn khác biệt.`;
+                } else if (bestLabel === '_background_noise_') {
+                     // Nếu mô hình nhận là tiếng ồn
+                     feedback = `<i class="fas fa-redo-alt mr-2"></i> **Cần cố gắng.** Tiếng ồn quá lớn hoặc âm thanh không rõ.`;
+                } else {
+                    // Nếu nhận diện thành từ khác
+                    feedback = `<i class="fas fa-times-circle mr-2"></i> **Sai!** Nghe giống từ: "${bestLabel}". Cần luyện lại.`;
+                }
+                statusClass = 'min-h-[60px] flex items-center justify-center bg-red-100 border-2 border-red-500 rounded-xl p-4 text-center text-red-700 font-bold';
+            }
+
+            statusEl.innerHTML = `${feedback} <span class="text-sm"> (Xác suất: ${(targetScore * 100).toFixed(1)}%)</span>`;
+            statusEl.className = statusClass;
+        }
+
+    </script>
+</body>
+</html>

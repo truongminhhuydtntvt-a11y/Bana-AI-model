@@ -1,0 +1,57 @@
+{
+    "modelName": "BanaPronunciationClassifier",
+    "timeStamp": "2025-11-30T13:50:52.954545",
+    "labels": [
+        "'bok",
+        "Ngoh",
+        "background_noise",
+        "drơ̆u",
+        "găm",
+        "gôh",
+        "kok",
+        "kơpô",
+        "kơsĕ",
+        "lơmo",
+        "mai",
+        "minh",
+        "mĭ",
+        "mĭnh jĭt",
+        "nhŭng",
+        "oh",
+        "pêng",
+        "pơđăm",
+        "puôn",
+        "tơhngam",
+        "tơpơh",
+        "xem",
+        "xĭn",
+        "xơdrô triêng",
+        "yǎ",
+        "đak",
+        "΄bal",
+        "΄bă",
+        "΄nhŏng",
+        "΄yĕr"
+    ],
+    "num_classes": 30,
+    "audio_parameters": {
+        "sampleRate": 16000,
+        "n_mfcc": 40,
+        "columnTruncateLength": 44
+    },
+    "dataset_split": {
+        "total_samples": 179,
+        "train_samples": 143,
+        "test_samples": 36
+    },
+    "model_summary": {
+        "input_shape": [
+            40,
+            44,
+            1
+        ],
+        "output_activation": "softmax",
+        "loss_function": "categorical_crossentropy",
+        "optimizer": "adam"
+    }
+}
